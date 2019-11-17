@@ -22,7 +22,7 @@ case class ResourcePermissions(r: Boolean, w: Boolean, x: Boolean, c: Boolean, a
 
 /** An address space description.
   * @param address      the address space.
-  * @param permissions  the permission attributes of this space. See [[freechips.rocketchip.diplomacy.ResourcePermissions]].
+  * @param permissions  the permission attributes of this space. See [[chipsalliance.diplomacy.ResourcePermissions]].
   */
 final case class ResourceAddress(address: Seq[AddressSet], permissions: ResourcePermissions) extends ResourceValue
 {
@@ -36,7 +36,7 @@ object ResourceAddress {
 /** A mapped address space (eg: when map a device to a bus).
   * @param address      the address space.
   * @param offset       the address offset of the mapped device (eg: base address of the bus).
-  * @param permissions  the permission attributes of this space. See [[freechips.rocketchip.diplomacy.ResourcePermissions]].
+  * @param permissions  the permission attributes of this space. See [[chipsalliance.diplomacy.ResourcePermissions]].
   */
 final case class ResourceMapping(address: Seq[AddressSet], offset: BigInt, permissions: ResourcePermissions) extends ResourceValue
 final case class ResourceString(value: String) extends ResourceValue
@@ -62,7 +62,7 @@ case class ResourceBindings(map: Map[String, Seq[Binding]] = Map.empty)
 }
 
 /** A serializable description of a device.
-  * @param name         the resolved name of this device. See [[freechips.rocketchip.diplomacy.DeviceRegName]].
+  * @param name         the resolved name of this device. See [[chipsalliance.diplomacy.DeviceRegName]].
   * @param mapping      the property map of this device.
   */
 case class Description(name: String, mapping: Map[String, Seq[ResourceValue]])
