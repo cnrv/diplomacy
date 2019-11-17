@@ -1,6 +1,6 @@
 // See LICENSE.SiFive for license details.
 
-package freechips.rocketchip.diplomacy
+package chipsalliance.diplomacy
 
 import Chisel._
 import chisel3.experimental.IO
@@ -499,7 +499,7 @@ class IdentityNode[D, U, EO, EI, B <: Data](imp: NodeImp[D, U, EO, EI, B])()(imp
     val dangles = super.instantiate()
     (out zip in) map { case ((o, _), (i, _)) => o <> i }
     dangles
-  } 
+  }
 }
 
 // EphemeralNodes disappear from the final node graph

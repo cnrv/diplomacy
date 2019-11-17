@@ -1,5 +1,5 @@
 // See LICENSE.SiFive for license details.
 
-package freechips.rocketchip.diplomacy
+package chipsalliance.diplomacy
 
 trait HasClockDomainCrossing extends LazyScope { this: LazyModule => }

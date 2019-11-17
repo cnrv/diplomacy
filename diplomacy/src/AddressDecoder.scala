@@ -1,6 +1,6 @@
 // See LICENSE.SiFive for license details.
 
-package freechips.rocketchip.diplomacy
+package chipsalliance.diplomacy
 
 import Chisel.log2Ceil
 import scala.math.{max,min}
@@ -92,7 +92,7 @@ object AddressDecoder
     val case_b_ports = partitioned_ports.map(_._2).filter(!_.isEmpty).sorted(portOrder)
     (case_a_ports, case_b_ports)
   }
-  
+
   def partitionPartitions(partitions: Partitions, bit: BigInt): Partitions = {
     val partitioned_partitions = partitions.map(p => partitionPorts(p, bit))
     val case_a_partitions = partitioned_partitions.map(_._1).filter(!_.isEmpty)

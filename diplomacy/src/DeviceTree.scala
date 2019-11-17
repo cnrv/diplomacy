@@ -1,6 +1,6 @@
 // See LICENSE.SiFive for license details.
 
-package freechips.rocketchip.diplomacy
+package chipsalliance.diplomacy
 
 import freechips.rocketchip.config.Field
 import sys.process._

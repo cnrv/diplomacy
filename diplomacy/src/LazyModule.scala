@@ -1,6 +1,6 @@
 // See LICENSE.SiFive for license details.
 
-package freechips.rocketchip.diplomacy
+package chipsalliance.diplomacy
 
 import Chisel._
 import chisel3.{RawModule, MultiIOModule, withClockAndReset}

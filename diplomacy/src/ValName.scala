@@ -1,6 +1,6 @@
 // See LICENSE.SiFive for license details.
 
-package freechips.rocketchip.diplomacy
+package chipsalliance.diplomacy
 
 import scala.language.experimental.macros
 import freechips.rocketchip.macros.ValNameImpl

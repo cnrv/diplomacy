@@ -1,6 +1,6 @@
 // See LICENSE.SiFive for license details.
 
-package freechips.rocketchip.diplomacy
+package chipsalliance.diplomacy
 
 import Chisel._
 import freechips.rocketchip.util.{ShiftQueue, RationalDirection, FastToSlow, AsyncQueueParams}
@@ -96,7 +96,7 @@ case class TransferSizes(min: Int, max: Int)
   def intersect(x: TransferSizes) =
     if (x.max < min || max < x.min) TransferSizes.none
     else TransferSizes(scala.math.max(min, x.min), scala.math.min(max, x.max))
-  
+
   def smallestintervalcover(x: TransferSizes) = TransferSizes(if (min == 0 || x.min == 0) scala.math.max(min, x.min) else scala.math.min(min, x.min), scala.math.max(max, x.max))
 
   override def toString() = "TransferSizes[%d, %d]".format(min, max)

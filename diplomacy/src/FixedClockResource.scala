@@ -1,6 +1,6 @@
 // See LICENSE.SiFive for license details.
 
-package freechips.rocketchip.diplomacy
+package chipsalliance.diplomacy
 
 class FixedClockResource(val name: String, val freqMHz: Double, val prefix: String = "soc/")
 {
