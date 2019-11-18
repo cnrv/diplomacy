@@ -9,22 +9,41 @@ import freechips.rocketchip.config.Parameters
 import scala.collection.immutable.{SortedMap,ListMap}
 import scala.util.matching._
 
+/** a instance extends from [[LazyModule]] should implement:
+  * {{{
+  *   lazy val module = new LazyModuleImp(this) {
+  *     ???
+  *   }
+  * }}}
+  * And notice: [[LazyModule]] should not be lazy, the [[LazyModuleImp]] should be.
+  * when executing [[chisel3.stage.ChiselGeneratorAnnotation]], all [[LazyModule]] will be executed that time.
+  * */
 abstract class LazyModule()(implicit val p: Parameters)
 {
   protected[diplomacy] var children = List[LazyModule]()
   protected[diplomacy] var nodes = List[BaseNode]()
+  /** Too lazy to implement*/
   protected[diplomacy] var info: SourceInfo = UnlocatableSourceInfo
   protected[diplomacy] val parent = LazyModule.scope
 
   // code snippets from 'InModuleBody' injection
   protected[diplomacy] var inModuleBody = List[() => Unit]()
 
+  /** get the [[parents]] from [[LazyModule]] singleton:
+    * if will return the full stack of this [[LazyModule]]
+    * */
   def parents: Seq[LazyModule] = parent match {
     case None => Nil
     case Some(x) => x +: x.parents
   }
 
+  /** [[LazyModule.scope]] stack push */
   LazyModule.scope = Some(this)
+  /** ask parents to add this class into there [[children]],
+    * This is a important difference between [[chisel3.Module]] and [[LazyModule]]
+    * [[LazyModule]] can access other [[Module]]'s variable, before evaluation.
+    * So no need to access [[chisel3.internal.Builder]] for dangerous hacking.
+    * */
   parent.foreach(p => p.children = this :: p.children)
 
   // suggestedName accumulates Some(names), taking the final one. Nones are ignored.
@@ -52,9 +71,17 @@ abstract class LazyModule()(implicit val p: Parameters)
   lazy val pathName = module.pathName
   lazy val instanceName = pathName.split('.').last // The final Verilog instance name
 
+  /** [[LazyModule]] depends on the Scala evaluation:
+    * see https://stackoverflow.com/questions/7484928/what-does-a-lazy-val-do
+    * but the key is not whether this module is lazy or not,
+    * the key idea is module is a function which will be evaluated when needed.
+    * so in this abstract class [[module]] is defined as a method
+    * */
   def module: LazyModuleImpLike
 
   def omitGraphML: Boolean = !nodes.exists(!_.omitGraphML) && !children.exists(!_.omitGraphML)
+
+  /** generate the [[graphML]]*/
   lazy val graphML: String = parent.map(_.graphML).getOrElse {
     val buf = new StringBuilder
     buf ++= "<?xml version=\"1.0\" encoding=\"UTF-8\"?>\n"
@@ -122,15 +149,25 @@ abstract class LazyModule()(implicit val p: Parameters)
 
 object LazyModule
 {
+  /** current [[LazyModue]] scope, default is [[None]],
+    * it will be dynamically set by [[LazyScope.apply]] and [[LazyModule.apply]],
+    * specifically, it is a stack of [[LazyModule]],
+    * */
   protected[diplomacy] var scope: Option[LazyModule] = None
+  /** index of [[LazyModule]], notice there is no No.0 module */
   private var index = 0
 
   def apply[T <: LazyModule](bc: T)(implicit valName: ValName, sourceInfo: SourceInfo): T = {
-    // Make sure the user put LazyModule around modules in the correct order
-    // If this require fails, probably some grandchild was missing a LazyModule
-    // ... or you applied LazyModule twice
+    /** Make sure the user put LazyModule around modules in the correct order
+      * If this require fails, probably some grandchild was missing a LazyModule
+      * or you applied LazyModule twice
+      * */
     require (scope.isDefined, s"LazyModule() applied to ${bc.name} twice ${sourceLine(sourceInfo)}")
     require (scope.get eq bc, s"LazyModule() applied to ${bc.name} before ${scope.get.name} ${sourceLine(sourceInfo)}")
+    /** [[LazyModule.scope]] stack pop,
+      * since [[LazyModule]] is not a lazy val,
+      * when [[apply[T <: LazyModule](bc: T)]], [[bc]] has been evaluated, stack push inside [[LazyModule]]
+      * */
     scope = bc.parent
     bc.info = sourceInfo
     if (!bc.suggestedNameVar.isDefined) bc.suggestName(valName.name)
@@ -199,6 +236,9 @@ class LazyRawModuleImp(val wrapper: LazyModule) extends RawModule with LazyModul
   }
 }
 
+/** when class extends [[SimpleLazyModule]],
+  * class should also extends [[LazyModuleImpLike]]
+  * */
 class SimpleLazyModule(implicit p: Parameters) extends LazyModule
 {
   lazy val module = new LazyModuleImp(this)
@@ -208,12 +248,21 @@ trait LazyScope
 {
   this: LazyModule =>
   override def toString: String = s"LazyScope named $name"
+  /** manage the [[LazyScope]], when calling [[apply]] function,
+    * [[LazyModule.scope]] will be altered.
+    * */
   def apply[T](body: => T) = {
     val saved = LazyModule.scope
+    /** [[LazyModule.scope]] stack push*/
     LazyModule.scope = Some(this)
+    /** because this is val, body will be evaluated. when assign to [[out]]
+      * thus if [[body]] contains a internal [[LazyScope]], another [[out]] will be evaluated.
+      * */
     val out = body
+    /** when [[out]] is evaluated, try to escape from where. */
     require (LazyModule.scope.isDefined, s"LazyScope ${name} tried to exit, but scope was empty!")
     require (LazyModule.scope.get eq this, s"LazyScope ${name} exited before LazyModule ${LazyModule.scope.get.name} was closed")
+    /** stack pop*/
     LazyModule.scope = saved
     out
   }

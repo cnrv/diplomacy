@@ -94,6 +94,7 @@ abstract class SimpleNodeImp[D, U, E, B <: Data]
 
 /** [[BaseNode]] is the base abstraction layer of [[Parameters]] diplomacy,
   * different [[Parameters]] contained in [[NodeImp]] are accessed and altered from here.
+  * Notice [[BaseNode]] is a negotiation for parameters, module generation will handled by [[LazyModule]].
   * */
 abstract class BaseNode(implicit val valName: ValName)
 {
