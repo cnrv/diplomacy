@@ -15,14 +15,20 @@ import scala.util.matching._
   *     ???
   *   }
   * }}}
-  * And notice: [[LazyModule]] should not be lazy, the [[LazyModuleImp]] should be.
-  * when executing [[chisel3.stage.ChiselGeneratorAnnotation]], all [[LazyModule]] will be executed that time.
+  * when executing [[chisel3.stage.ChiselGeneratorAnnotation]], all [[LazyModuleImp]] will be instantiated at that time.
+  *
+  * But notice [[LazyModule]] is not lazy, [[LazyModuleImp]] is.
+  * [[LazyModule]] is a handle to [[LazyModuleImp]],
+  * and [[LazyModule]] will couple with [[BaseNode]], exists in the [[BaseNode]] lifetime.
+  * [[LazyModuleImp]] contains the real circuit implementation.
+  * In order to postpone the elaboration time, the real circuit should be set to lazy.
   * */
 abstract class LazyModule()(implicit val p: Parameters)
 {
   protected[diplomacy] var children = List[LazyModule]()
   protected[diplomacy] var nodes = List[BaseNode]()
-  /** Too lazy to implement*/
+  /** Author used design a [[info]] for source info locator, but not implemented.
+    * thus leave [[UnlocatableSourceInfo]] behind.*/
   protected[diplomacy] var info: SourceInfo = UnlocatableSourceInfo
   protected[diplomacy] val parent = LazyModule.scope
 
@@ -237,7 +243,8 @@ class LazyRawModuleImp(val wrapper: LazyModule) extends RawModule with LazyModul
 }
 
 /** when class extends [[SimpleLazyModule]],
-  * class should also extends [[LazyModuleImpLike]]
+  * class should also extends [[LazyModuleImpLike]],
+  * todo: more clear documentation.
   * */
 class SimpleLazyModule(implicit p: Parameters) extends LazyModule
 {

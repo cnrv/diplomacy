@@ -590,11 +590,8 @@ class MixedAdapterNode[DI, UI, EI, BI <: Data, DO, UO, EO, BO <: Data](
 /**
   * The [[MixedAdapterNode.inner]] and [[MixedAdapterNode.outer]] of [[AdapterNode]] are same,
   * but it has to provide the [[uFn]] and [[dFn]] to alter the [[Parameters]] transform protocol
-  * @todo not sure what these [[AdapterNode]] used in the hardware, maybe the parameter alteration?
-  * for example:
-  *   [[TLAdapterNode]], [[TLAsyncAdapterNode]], [[TLRationalAdapterNode]],
-  *   [[AXI4AdapterNode]],
-  *   [[IntAdapterNode]]
+  * When the [[U]] and [[D]] parameters are different, an adapter node is used.
+  * For example, an adapter node is need for a TL to AXI bridge (interface).
   *
   * @param imp
   * @param dFn
@@ -724,6 +721,9 @@ class NexusNode[D, U, EO, EI, B <: Data](imp: NodeImp[D, U, EO, EI, B])(
     extends MixedNexusNode[D, U, EI, B, D, U, EO, B](imp, imp)(dFn, uFn, inputRequiresOutput, outputRequiresInput)
 
 /** [[SourceNode]] will ignore the [[MixedNode.iPorts]].
+  * [[SourceNode]] is to model a master node in the graph which only has outwards arcs but no inwards arcs.
+  * For example, a processor would be a [[SourceNode]].
+  *
   * There are no Mixed SourceNodes
   * @param imp
   * @param po
@@ -759,6 +759,8 @@ class SourceNode[D, U, EO, EI, B <: Data](imp: NodeImp[D, U, EO, EI, B])(po: Seq
 }
 
 /** [[SinkNode]] will ignore the [[MixedNode.oPorts]].
+  * [[SInkNode]] is a slave node in the graph which has only inwards arcs but no outwards arcs,
+  * For example, a RAM block (sink) in regarding to the LLC.
   * @param imp
   * @param pi
   * @param valName
