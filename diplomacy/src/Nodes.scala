@@ -591,7 +591,7 @@ class MixedAdapterNode[DI, UI, EI, BI <: Data, DO, UO, EO, BO <: Data](
   * The [[MixedAdapterNode.inner]] and [[MixedAdapterNode.outer]] of [[AdapterNode]] are same,
   * but it has to provide the [[uFn]] and [[dFn]] to alter the [[Parameters]] transform protocol
   * When the [[U]] and [[D]] parameters are different, an adapter node is used.
-  * For example, an adapter node is need for a TL to AXI bridge (interface).
+  * For example, an adapter node is needed for a TL to AXI bridge (interface).
   *
   * @param imp
   * @param dFn
