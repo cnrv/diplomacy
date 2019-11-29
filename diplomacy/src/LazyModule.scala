@@ -22,6 +22,9 @@ import scala.util.matching._
   * and [[LazyModule]] will couple with [[BaseNode]], exists in the [[BaseNode]] lifetime.
   * [[LazyModuleImp]] contains the real circuit implementation.
   * In order to postpone the elaboration time, the real circuit should be set to lazy.
+  *
+  * A [[LazyModule]] can have multi node at the same time.
+  *
   * */
 abstract class LazyModule()(implicit val p: Parameters)
 {
@@ -195,6 +198,7 @@ sealed trait LazyModuleImpLike extends RawModule
 
   implicit val p = wrapper.p
 
+  /** [[instantiate]] will be called when a instance of [[LazyModuleImp]] is created. */
   protected[diplomacy] def instantiate() = {
     val childDangles = wrapper.children.reverse.flatMap { c =>
       implicit val sourceInfo = c.info
@@ -208,7 +212,8 @@ sealed trait LazyModuleImpLike extends RawModule
       mod.dangles
     }
 
-    /** ask each node in the [[LazyModule]] to instantiate. */
+    /** ask each node in the [[LazyModule]] to call [[BaseNode.instantiate]].
+      * if will return a sequence of [[Dangle]] of these [[BaseNode]]*/
     val nodeDangles = wrapper.nodes.reverse.flatMap(_.instantiate())
     /** add all node and child dangle together.*/
     val allDangles = nodeDangles ++ childDangles

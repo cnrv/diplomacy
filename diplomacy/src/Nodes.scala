@@ -10,6 +10,9 @@ import freechips.rocketchip.util.HeterogeneousBag
 import scala.collection.mutable.ListBuffer
 import scala.util.matching._
 
+
+/** TODO: full Nodes explanations. */
+
 /** [[MonitorsEnabled]] is [[Parameters]] to enable [[InwardNodeImp.monitor]]
   * which is used by TLMonitorBase to generate Monitor Module.
   * */
@@ -25,16 +28,6 @@ case class RenderedEdge(
   colour:  String,
   label:   String  = "",
   flipped: Boolean = false)
-
-/** [[Imp]] is to describe protocol properties of a kind of Node, which is always directly derived from interconnection protocol, such as TLImp, AXIImp, IntImp.
-  * [[Node]] is to describe the Node entity, including how to connect them diplomatically or how to convert one protocol to another.
-  * [[Downwards]] a master to slave direction is downwards
-  * [[Upwards]] a slave to master direction is upwards
-  * [[InwardNode]] a slave node is a InwardNode
-  * [[OutwardNode]] a master node is an OutwardNode
-  * [[Edge]] a collection of functions describing the functionality and connection for an interface, which is often derived from interconnection protocol.
-  * [[Bundle]] the harware interface, which is specified in interconnection protocol.
-  * */
 
 /** [[InwardNodeImp]] is the Slave Interface implementation
   *
@@ -83,7 +76,8 @@ trait OutwardNodeImp[DO, UO, EO, BO <: Data]
   def getI(pd: DO): Option[BaseNode] = None // most-inward common node
 }
 
-/** [[NodeImp]] contains Master and Slave Interface implementation
+/** [[NodeImp]] contains Master and Slave Interface implementation,
+  * it describes protocol properties of a kind of Node, which is always directly derived from interconnection protocol, such as TLImp, AXIImp, IntImp.
   *
   * @tparam D Downwards flowing Parameters of the node
   * @tparam U Upwards flowing Parameters of the node
@@ -114,23 +108,30 @@ abstract class SimpleNodeImp[D, U, E, B <: Data]
 }
 
 /** [[BaseNode]] is the base abstraction layer of [[Parameters]] diplomacy,
+  * it describes the Node entity, including how to connect them diplomatically or how to convert one protocol to another.
   * different [[Parameters]] contained in [[NodeImp]] are accessed and altered from here.
   * Notice [[BaseNode]] is a negotiation for parameters, module generation will handled by [[LazyModule]].
   * */
 abstract class BaseNode(implicit val valName: ValName)
 {
   /** extract [[LazyModule]] scope from upside. */
-  val scope = LazyModule.scope
+  val scope: Option[LazyModule] = LazyModule.scope
   /** node [[index]] for a [[LazyModule]]*/
   val index = scope.map(_.nodes.size).getOrElse(0)
   /** @return the [[LazyModule]] which initiate this [[BaseNode]]*/
   def lazyModule = scope.get
-  /** append this node to [[LazyModule]] */
+  /** append this node to [[LazyModule]],
+    * using [[Option.foreach]] means if scope is defined, append this to [[LazyModule.nodes]]
+    * */
   scope.foreach { lm => lm.nodes = this :: lm.nodes }
   /** access singleton [[BaseNode]] serial to set its own serial, and update [[BaseNode.serial]] */
   val serial = BaseNode.serial
   BaseNode.serial = BaseNode.serial + 1
+  /** [[instantiate]] will return a sequence of [[Dangle]] of this node,
+    * [[LazyModuleImpLike.instantiate]] will use which to generate IO port of the [[chisel3.RawModule]]*/
   protected[diplomacy] def instantiate(): Seq[Dangle]
+  /** A callback to finish the node generation,
+    * This will be executed when [[LazyModuleImpLike.instantiate]].*/
   protected[diplomacy] def finishInstantiate(): Unit
 
   /** @return name of this node*/
@@ -254,6 +255,7 @@ case object BIND_QUERY extends NodeBinding
 case object BIND_STAR  extends NodeBinding
 case object BIND_FLEX  extends NodeBinding
 
+/** [[InwardNode]] is a slave node*/
 trait InwardNode[DI, UI, BI <: Data] extends BaseNode
 {
   private val accPI = ListBuffer[(Int, OutwardNode[DI, UI, BI], NodeBinding, Parameters, SourceInfo)]()
@@ -283,6 +285,7 @@ trait OutwardNodeHandle[DO, UO, EO, BO <: Data] extends NoHandle
   def outer: OutwardNodeImp[DO, UO, EO, BO]
 }
 
+/** [[OutwardNode]] is a master node.*/
 trait OutwardNode[DO, UO, BO <: Data] extends BaseNode
 {
   private val accPO = ListBuffer[(Int, InwardNode [DO, UO, BO], NodeBinding, Parameters, SourceInfo)]()
@@ -309,6 +312,10 @@ case class StarCycleException(loop: Seq[String] = Nil) extends CycleException("s
 case class DownwardCycleException(loop: Seq[String] = Nil) extends CycleException("downward", loop)
 case class UpwardCycleException(loop: Seq[String] = Nil) extends CycleException("upward", loop)
 
+
+/** [[Edges]] is a collection of functions describing the functionality and connection for an interface,
+  * which is often derived from interconnection protocol.
+  * */
 case class Edges[EI, EO](in: Seq[EI], out: Seq[EO])
 /**
   * The sealed Node in the package, all Node are derived from it.
