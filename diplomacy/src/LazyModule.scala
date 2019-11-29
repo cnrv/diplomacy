@@ -198,28 +198,49 @@ sealed trait LazyModuleImpLike extends RawModule
   protected[diplomacy] def instantiate() = {
     val childDangles = wrapper.children.reverse.flatMap { c =>
       implicit val sourceInfo = c.info
+      /** calling [[c.module]] will push the real [[Module]] into [[chisel3.internal.Builder]],
+        * notice this place is not calling [[instantiate]], it just push the [[c.module]] to Builder.
+        * */
       val mod = Module(c.module)
+      /** ask each child to finish instantiate.*/
       mod.finishInstantiate()
+      /** return dangles of each child. */
       mod.dangles
     }
+
+    /** ask each node in the [[LazyModule]] to instantiate. */
     val nodeDangles = wrapper.nodes.reverse.flatMap(_.instantiate())
+    /** add all node and child dangle together.*/
     val allDangles = nodeDangles ++ childDangles
+
     val pairing = SortedMap(allDangles.groupBy(_.source).toSeq:_*)
+    /** make the connection between source and sink.*/
     val done = Set() ++ pairing.values.filter(_.size == 2).map { case Seq(a, b) =>
       require (a.flipped != b.flipped)
       if (a.flipped) { a.data <> b.data } else { b.data <> a.data }
       a.source
     }
+    /** find all not connected [[Dangle]] */
     val forward = allDangles.filter(d => !done(d.source))
+    /** generate [[IO]] from [[forward]]*/
     val auto = IO(new AutoBundle(forward.map { d => (d.name, d.data, d.flipped) }:_*))
+    /** give these [[IO]] a [[Dangle]] to make it easy to access from father nodes.
+      * connect the generated IO with internal forward data*/
     val dangles = (forward zip auto.elements) map { case (d, (_, io)) =>
       if (d.flipped) { d.data <> io } else { io <> d.data }
       d.copy(data = io, name = wrapper.suggestedName + "_" + d.name)
     }
+    /** push all [[LazyModule.inModuleBody]] to [[chisel3.internal.Builder]]*/
     wrapper.inModuleBody.reverse.foreach { _() }
+    /** return [[IO]] and [[Dangle]] of this [[LazyModuleImp]]*/
     (auto, dangles)
   }
 
+  /** Ask each [[BaseNode]] in [[wrapper.nodes]] to call [[BaseNode.finishInstantiate]]
+    * notice: There are 2 different finishInstantiate:
+    *   [[LazyModuleImp.finishInstantiate]] and [[BaseNode.finishInstantiate]],
+    *   the former is a wrapper to the latter
+    * */
   protected[diplomacy] def finishInstantiate() {
     wrapper.nodes.reverse.foreach { _.finishInstantiate() }
   }
@@ -292,14 +313,24 @@ case class HalfEdge(serial: Int, index: Int) extends Ordered[HalfEdge] {
 }
 case class Dangle(source: HalfEdge, sink: HalfEdge, flipped: Boolean, name: String, data: Data)
 
+/** [[AutoBundle]] will construct the [[Bundle]] for [[LazyModule]] in [[LazyModuleImpLike.instantiate]],
+  * @param elts is a sequence of data contains port (name, data, flipped),
+  *             flipped: true -> Input
+  *                      false -> Output
+  * */
 final class AutoBundle(elts: (String, Data, Boolean)*) extends Record {
   // We need to preserve the order of elts, despite grouping by name to disambiguate things
   val elements = ListMap() ++ elts.zipWithIndex.map(makeElements).groupBy(_._1).values.flatMap {
+    /** if name is unique, it will return a Seq[index -> (name -> data)]*/
     case Seq((key, element, i)) => Seq(i -> (key -> element))
+    /** if name is not unique, name will append with j, and return `Seq[index -> (s"${name}_${j}" -> data)]` */
     case seq => seq.zipWithIndex.map { case ((key, element, i), j) => i -> (key + "_" + j -> element) }
   }.toList.sortBy(_._1).map(_._2)
   require (elements.size == elts.size)
 
+  /** trim final "(_[0-9]+)*$" in the name,
+    * flip data with flipped
+    * */
   private def makeElements(tuple: ((String, Data, Boolean), Int)) = {
     val ((key, data, flip), i) = tuple
     // trim trailing _0_1_2 stuff so that when we append _# we don't create collisions
@@ -318,6 +349,11 @@ trait ModuleValue[T]
 
 object InModuleBody
 {
+  /** code snippet injection.
+    * [[InModuleBody.apply(body)]] will inject body to current [[LazyModule.inModuleBody]],
+    * and called by [[LazyModule.module]], it is extended from [[LazyModuleImpLike]],
+    * which will call [[LazyModuleImpLike.instantiate]] to push [[LazyModule]] to [[chisel3.internal.Builder]] finally.
+    * */
   def apply[T](body: => T): ModuleValue[T] = {
     require (LazyModule.scope.isDefined, s"InModuleBody invoked outside a LazyModule")
     val scope = LazyModule.scope.get
@@ -329,6 +365,8 @@ object InModuleBody
         result.get
       }
     }
+    /** notice: here didn't call [[out.execute]] function,
+      * it is a `() => Unit` val which will be executed later*/
     scope.inModuleBody = (out.execute _) +: scope.inModuleBody
     out
   }

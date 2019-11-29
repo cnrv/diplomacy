@@ -61,6 +61,9 @@ package object diplomacy
     case RenderFlipped => !p(RenderFlipped)
   })
 
+  /** [[ModuleValue]] is used by [[InModuleBody]],
+    * extract result body from the [[InModuleBody]].
+    * */
   implicit def moduleValue[T](value: ModuleValue[T]): T = value.getWrappedValue
 
   implicit def noCrossing(value: NoCrossing.type): ClockCrossingType = SynchronousCrossing(BufferParams.none)
