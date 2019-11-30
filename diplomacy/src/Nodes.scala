@@ -11,7 +11,14 @@ import scala.collection.mutable.ListBuffer
 import scala.util.matching._
 
 
-/** TODO: full Nodes explanations. */
+/** Nodes system is the abstraction of the bus interconnect protocol,
+  * Since all blocks(CPUs, caches, peripheries) are connected to bus,
+  * Nodes system contains such functions:
+  *   1. propagate [[Parameters]].
+  *   2. make connections to entire system bus.
+  *
+  *
+  * */
 
 /** [[MonitorsEnabled]] is [[Parameters]] to enable [[InwardNodeImp.monitor]]
   * which is used by TLMonitorBase to generate Monitor Module.
@@ -77,7 +84,13 @@ trait OutwardNodeImp[DO, UO, EO, BO <: Data]
 }
 
 /** [[NodeImp]] contains Master and Slave Interface implementation,
-  * it describes protocol properties of a kind of Node, which is always directly derived from interconnection protocol, such as TLImp, AXIImp, IntImp.
+  * it describes protocol properties of a kind of Node, which is always directly derived from interconnection protocol.
+  * In rocket-chip, there are these different bus protocol implementation:
+  * TileLink: TLImp, TLAsyncImp, TLRationalImp
+  * Int: IntImp, IntSyncImp
+  * AHB: AHBImpSlave, AHBImpMaster
+  * AXI4: AXI4Imp, AXI4AsyncImp
+  * APH: ABPImp
   *
   * @tparam D Downwards flowing Parameters of the node
   * @tparam U Upwards flowing Parameters of the node
@@ -90,7 +103,8 @@ abstract class NodeImp[D, U, EO, EI, B <: Data]
 
 /** [[SimpleNodeImp]] contains Master and Slave Interface implementation, edge of which are same.
   * If only one direction of transaction is permitted, we can always use the [[SimpleNodeImp]]
-  * For example, IntImp is an interrupt transfer protocol in which all signals shall flow from a master to a slave. There is no backwards handshake flow from a slave to master.
+  * For example, IntImp is an interrupt transfer protocol in which all signals shall flow from a master to a slave.
+  * There is no backwards handshake flow from a slave to master.
   * @tparam D Downwards flowing Parameters of the node
   * @tparam U Upwards flowing Parameters of the node
   * @tparam E Edge Parameters describing a connection on the outer side of the node
@@ -249,10 +263,26 @@ trait InwardNodeHandle[DI, UI, EI, BI <: Data] extends NoHandle
   def :*=*[EY](h: OutwardNodeHandle[DI, UI, EY, BI])(implicit p: Parameters, sourceInfo: SourceInfo): NoHandle = { bind(h, BIND_FLEX);  NoHandleObject }
 }
 
+/** the trait for bind options,
+  * @todo below is just guessing, not sure
+  * `:=` will always connect form slave to master,
+  * `*` means query, it will query the master node for
+  * */
 sealed trait NodeBinding
+/** [[BIND_ONCE]] will called by := */
 case object BIND_ONCE  extends NodeBinding
+/** [[BIND_QUERY]] will called by :*=, it will bind N (N >= 0) connections from slave.
+  * query master which N should be applied.
+  * */
 case object BIND_QUERY extends NodeBinding
+/** [[BIND_STAR]] will called by :=*, it will bind N (N >= 0) connections from slave.
+  * query slave which N should be applied.
+  * */
 case object BIND_STAR  extends NodeBinding
+/** [[BIND_FLEX]] will called by :*=*, it will bind N (N >= 0) connections from slave.
+  * but it will query both master and slave,
+  * use magic DFS calculating N.
+  * */
 case object BIND_FLEX  extends NodeBinding
 
 /** [[InwardNode]] is a slave node*/
@@ -288,16 +318,32 @@ trait OutwardNodeHandle[DO, UO, EO, BO <: Data] extends NoHandle
 /** [[OutwardNode]] is a master node.*/
 trait OutwardNode[DO, UO, BO <: Data] extends BaseNode
 {
+  /** when connecting this node to other nodes,
+    * [[accPO]] will append other nodes's information
+    * */
   private val accPO = ListBuffer[(Int, InwardNode [DO, UO, BO], NodeBinding, Parameters, SourceInfo)]()
+  /** mark [[oBindings]] has been implemented.*/
   private var oRealized = false
 
+  /** current size of [[accPO]]. [[InwardNode.bind]] will find it useful.*/
   protected[diplomacy] def oPushed = accPO.size
+  /** call by [[InwardNode]] to bind this port from [[InwardNode]]
+    * @param index index of current
+    * @param node wtf
+    * @param binding wtf
+    * */
   protected[diplomacy] def oPush(index: Int, node: InwardNode [DO, UO, BO], binding: NodeBinding)(implicit p: Parameters, sourceInfo: SourceInfo) {
     val info = sourceLine(sourceInfo, " at ", "")
     require (!oRealized, s"${context} was incorrectly connected as a source after its .module was used" + info)
     accPO += ((index, node, binding, p, sourceInfo))
   }
 
+  /** It's the final result of [[accPO]].
+    * after calling this, [[oPush]] will reject to add more [[Parameters]], since module has been send to [[chisel3.internal.Builder]]
+    * it will be called by [[sinkCard]], [[sourceCard]], and [[flexes]],
+    * which will be used to generate [[oPortMapping]], [[oStar]]
+    * and finally called by [[MixedNode.oDirectPorts]] for [[MixedNode.oPorts]] generation
+    * */
   protected[diplomacy] lazy val oBindings = { oRealized = true; accPO.result() }
 
   protected[diplomacy] val oStar: Int
@@ -337,21 +383,42 @@ sealed abstract class MixedNode[DI, UI, EI, BI <: Data, DO, UO, EO, BO <: Data](
   implicit valName: ValName)
   extends BaseNode with NodeHandle[DI, UI, EI, BI, DO, UO, EO, BO] with InwardNode[DI, UI, BI] with OutwardNode[DO, UO, BO]
 {
-  /** [[inward]] is defined from [[InwardNodeHandle]], while [[outward]] is defined from [[OutwardNodeHandle]],
-    * both of these are used for [[bind]]
+  /** [[inward]] is defined from [[InwardNodeHandle]], while [[outward]] is defined from [[OutwardNodeHandle]].
+    * different from [[MixedAdapterNode]], [[MixedNode]] has the same implementation of [[inward]] and [[outward]],
+    * thus both of them are this
     * */
   val inward = this
   val outward = this
 
+  /** @todo function related to bind times.*/
   protected[diplomacy] def resolveStar(iKnown: Int, oKnown: Int, iStar: Int, oStar: Int): (Int, Int)
+  /** map [[Parameters]] from upstream's [[Parameters]],
+    * @param n is the size of output sequence of parameter for multi-downstream? @todo not sure
+    * @param p is the input parameters. @todo not sure
+    * */
   protected[diplomacy] def mapParamsD(n: Int, p: Seq[DI]): Seq[DO]
+  /** map [[Parameters]] from downstream's [[Parameters]],
+    * @param n is the size of output sequence of parameter for multi-inputstream? @todo not sure
+    * @param p is the output parameters. @todo not sure
+    * */
   protected[diplomacy] def mapParamsU(n: Int, p: Seq[UO]): Seq[UI]
 
+  /** [[sinkCard]] means the number of nodes sinking to here([[Parameters]] propagate from those node to here.)
+    * `oBindings.count(_._3 == BIND_QUERY)`, this is master, query slaves,
+    * `iBindings.count(_._3 == BIND_STAR)`, this is slave, query master.
+    * */
   protected[diplomacy] lazy val sinkCard   = oBindings.count(_._3 == BIND_QUERY) + iBindings.count(_._3 == BIND_STAR)
+  /** [[sourceCard]] means the number of nodes source from here([[Parameters]] propagate from here to those nodes.)
+    * `iBindings.count(_._3 == BIND_QUERY)`, this is master, query master,
+    * `oBindings.count(_._3 == BIND_STAR)`, this is slave, query slave.
+    * */
   protected[diplomacy] lazy val sourceCard = iBindings.count(_._3 == BIND_QUERY) + oBindings.count(_._3 == BIND_STAR)
+  /** [[flexes]] find all the flex binding.*/
   protected[diplomacy] lazy val flexes     = oBindings.filter(_._3 == BIND_FLEX).map(_._2) ++
                                              iBindings.filter(_._3 == BIND_FLEX).map(_._2)
+  /** @todo omg*/
   protected[diplomacy] lazy val flexOffset = { // positive = sink cardinality; define 0 to be sink (both should work)
+    /** Deep first search for flex node visit.*/
     def DFS(v: BaseNode, visited: Map[Int, BaseNode]): Map[Int, BaseNode] = {
       if (visited.contains(v.serial)) {
         visited
@@ -568,7 +635,10 @@ abstract class CustomNode[D, U, EO, EI, B <: Data](imp: NodeImp[D, U, EO, EI, B]
 
 /**
   * [[MixedAdapterNode]] is used to Transform between different Node Protocol, and also the Async part of the Specific Node Implementation.
-  *
+  * for example:
+  * {{{
+  *   case class TLToAXI4Node(stripBits: Int = 0)(implicit valName: ValName) extends MixedAdapterNode(TLImp, AXI4Imp)
+  * }}}
   * @param inner input node [[Parameters]]
   * @param outer output node [[Parameters]]
   * @param dFn
@@ -687,10 +757,10 @@ class EphemeralNode[D, U, EO, EI, B <: Data](imp: NodeImp[D, U, EO, EI, B])()(im
   * [[MixedNexusNode]] is used to handle the case which not sure the number of nodes connect to.
   * [[NodeImp]] is different between [[inner]] and [[outer]],
   *
-  * @param inner input node [[Parameters]]
-  * @param outer output node [[Parameters]]
-  * @param dFn
-  * @param uFn
+  * @param inner input node bus implementation
+  * @param outer output node bus implementation
+  * @param dFn convert a sequence of [[Parameters]] accept from upstream, process it and to downstream
+  * @param uFn convert a sequence of [[Parameters]] accept from downstream, process it and to upstream
   * @param inputRequiresOutput
   * @param outputRequiresInput
   * @param valName

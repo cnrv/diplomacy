@@ -316,6 +316,10 @@ case class HalfEdge(serial: Int, index: Int) extends Ordered[HalfEdge] {
   import scala.math.Ordered.orderingToOrdered
   def compare(that: HalfEdge) = HalfEdge.unapply(this) compare HalfEdge.unapply(that)
 }
+/** [[Dangle]] is a handle to [[LazyModule]] and [[BaseNode]].
+  * It will be returned by [[LazyModuleImpLike.instantiate]] and [[BaseNode.instantiate]],
+  * It contains the IO information of a [[LazyModule]] and [[BaseNode]]
+  * */
 case class Dangle(source: HalfEdge, sink: HalfEdge, flipped: Boolean, name: String, data: Data)
 
 /** [[AutoBundle]] will construct the [[Bundle]] for [[LazyModule]] in [[LazyModuleImpLike.instantiate]],
