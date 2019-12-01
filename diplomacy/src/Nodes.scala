@@ -15,8 +15,28 @@ import scala.util.matching._
   * Since all blocks(CPUs, caches, peripheries) are connected to bus,
   * Nodes system contains such functions:
   *   1. propagate [[Parameters]].
-  *   2. make connections to entire system bus.
+  *   2. calculate binding nodes size.
+  *   3. make connections for entire system bus.
   *
+  * This example will use `NodeA` as master [[OutwardNode]], `NodeB` as slave [[InwardNode]], connect them together,
+  * {{{
+  *   val nodeA: OutwardNode = someLazyModule.node
+  *   val nodeB: InwardNode = anotherLazyModule.node
+  *   nodeB := nodeA
+  * }}}
+  *
+  * Firstly, [[Parameters]] will be propagated between `nodeA` and `nodeB`,
+  * when executing `nodeB := nodeA`, `nodeB` will invoke [[InwardNode.bind]],
+  * which is implemented with [[MixedNode.bind]] that bind `nodeA` to `nodeB`
+  * in [[MixedNode.bind]],
+  *   `nodeA` will call [[OutwardNode.oPush(index, node, binding)]],
+  *     `index` is current `nodeA` [[OutwardNode.accPO]] size, which represents the how many [[InwardNode]] has connected to `nodeA`
+  *     `node` is [[NodeHandle]] of `NodeB`,
+  *     `binding` is binding type for this binding, which is used for deciding how many nodeB instance should be bind here.
+  *   `nodeB` will call [[InwardNode.iPush(index, node, binding)]],
+  *     `index` is current `nodeB` [[InwardNode.accPI]] size, which represents the how many [[OutwardNode]] has connected to `nodeB`
+  *     `node` is [[NodeHandle]] of `NodeA`,
+  *     `binding` is binding type for this binding, which is used for deciding how many nodeB instance should be bind here.
   *
   * */
 
@@ -883,6 +903,7 @@ class SinkNode[D, U, EO, EI, B <: Data](imp: NodeImp[D, U, EO, EI, B])(pi: Seq[U
   protected[diplomacy] def mapParamsD(n: Int, p: Seq[D]): Seq[D] = Seq()
   protected[diplomacy] def mapParamsU(n: Int, p: Seq[U]): Seq[U] = pi
 
+  /** @todo call back to make wtf? */
   def makeIOs()(implicit valName: ValName): HeterogeneousBag[B] = {
     val bundles = this.in.map(_._1)
     val ios = IO(new HeterogeneousBag(bundles.map(_.cloneType)))

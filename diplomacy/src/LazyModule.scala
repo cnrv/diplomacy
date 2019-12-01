@@ -9,7 +9,7 @@ import freechips.rocketchip.config.Parameters
 import scala.collection.immutable.{SortedMap,ListMap}
 import scala.util.matching._
 
-/** a instance extends from [[LazyModule]] should implement:
+/** a instance extends from [[LazyModuleImp]] should implement:
   * {{{
   *   lazy val module = new LazyModuleImp(this) {
   *     ???
@@ -23,7 +23,16 @@ import scala.util.matching._
   * [[LazyModuleImp]] contains the real circuit implementation.
   * In order to postpone the elaboration time, the real circuit should be set to lazy.
   *
-  * A [[LazyModule]] can have multi node at the same time.
+  * A [[LazyModule]] can have multi node at the same time. Generally, [[BaseNode]] should be an instance of [[LazyModule]],
+  * {{{
+  *   class DemoLazyModule extends LazyModule {
+  *     val node1: BaseNode = SomeNode1()
+  *     val node2: BaseNode = SomeNode2()
+  *   }
+  * }}}
+  * when [[LazyModule]] is getting instanced, which will always looks like `val someLm = LazyModule(new DemoLazyModule)`,
+  * codes inside `DemoLazyModule` will be executed, since `node1` and `node2` are not lazy, when executing them,
+  * they will push `this` to current [[LazyModule]].
   *
   * */
 abstract class LazyModule()(implicit val p: Parameters)
