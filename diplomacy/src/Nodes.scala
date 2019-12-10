@@ -20,9 +20,11 @@ import scala.util.matching._
   *
   * This example will use `NodeA` as master [[OutwardNode]], `NodeB` as slave [[InwardNode]], connect them together,
   * {{{
-  *   val nodeA: OutwardNode = someLazyModule.node
-  *   val nodeB: InwardNode = anotherLazyModule.node
-  *   nodeB := nodeA
+  *   val nodeA: NodeHandle = someLazyModule.node
+  *   val nodeB: NodeHandle = anotherLazyModule.node
+  *   // this will return a new NodeHandle with InwardNode of nodeA, OutwardNode of nodeB for chain connection.
+  *   val handle: NodeHandle = nodeB := nodeA
+  *
   * }}}
   *
   * Firstly, [[Parameters]] will be propagated between `nodeA` and `nodeB`,
@@ -37,6 +39,13 @@ import scala.util.matching._
   *     `index` is current `nodeB` [[InwardNode.accPI]] size, which represents the how many [[OutwardNode]] has connected to `nodeB`
   *     `node` is [[NodeHandle]] of `NodeA`,
   *     `binding` is binding type for this binding, which is used for deciding how many nodeB instance should be bind here.
+  *
+  * Parameters System:
+  * D[IO], U[IO], E[IO], B[IO] is parameters will be propagated.
+  * D: Downwards (master -> slave)
+  * U: Upwards (slave -> master)
+  * E: Edge
+  * B: Bundle (actual data)
   *
   * */
 
@@ -277,6 +286,8 @@ trait InwardNodeHandle[DI, UI, EI, BI <: Data] extends NoHandle
   def :=* [DX, UX, EX, BX <: Data, EY](h: NodeHandle[DX, UX, EX, BX, DI, UI, EY, BI])(implicit p: Parameters, sourceInfo: SourceInfo): InwardNodeHandle[DX, UX, EX, BX] = { bind(h, BIND_QUERY); h }
   def :*=*[DX, UX, EX, BX <: Data, EY](h: NodeHandle[DX, UX, EX, BX, DI, UI, EY, BI])(implicit p: Parameters, sourceInfo: SourceInfo): InwardNodeHandle[DX, UX, EX, BX] = { bind(h, BIND_FLEX);  h }
   // connecting input node with output node => no node
+  /** @todo these function can not provide a chain connection, thus a little confused about the usage.
+    *       for example: if I connect a cache to a tile(which has no InwardNodeHandle) will then I cannot connection anything else to cache? */
   def :=  [EY](h: OutwardNodeHandle[DI, UI, EY, BI])(implicit p: Parameters, sourceInfo: SourceInfo): NoHandle = { bind(h, BIND_ONCE);  NoHandleObject }
   def :*= [EY](h: OutwardNodeHandle[DI, UI, EY, BI])(implicit p: Parameters, sourceInfo: SourceInfo): NoHandle = { bind(h, BIND_STAR);  NoHandleObject }
   def :=* [EY](h: OutwardNodeHandle[DI, UI, EY, BI])(implicit p: Parameters, sourceInfo: SourceInfo): NoHandle = { bind(h, BIND_QUERY); NoHandleObject }
@@ -289,35 +300,58 @@ trait InwardNodeHandle[DI, UI, EI, BI <: Data] extends NoHandle
   * `*` means query, it will query the master node for
   * */
 sealed trait NodeBinding
-/** [[BIND_ONCE]] will called by := */
+/** [[BIND_ONCE]] will be called by := */
 case object BIND_ONCE  extends NodeBinding
-/** [[BIND_QUERY]] will called by :*=, it will bind N (N >= 0) connections from slave.
+/** [[BIND_QUERY]] will be called by :*=, it will bind N (N >= 0) connections from slave.
   * query master which N should be applied.
+  * On the node aspect, means query this.
   * */
 case object BIND_QUERY extends NodeBinding
-/** [[BIND_STAR]] will called by :=*, it will bind N (N >= 0) connections from slave.
+/** [[BIND_STAR]] will be called by :=*, it will bind N (N >= 0) connections from slave.
   * query slave which N should be applied.
+  * On the node aspect, means query that.
   * */
 case object BIND_STAR  extends NodeBinding
-/** [[BIND_FLEX]] will called by :*=*, it will bind N (N >= 0) connections from slave.
+/** [[BIND_FLEX]] will be called by :*=*, it will bind N (N >= 0) connections from slave.
   * but it will query both master and slave,
   * use magic DFS calculating N.
+  * This binding only apply on these cases:
+  *   1. partial doesn't contain a chain, a :*=* b :*=* c.
+  *   2. no source/sink node binding to each partial.
   * */
 case object BIND_FLEX  extends NodeBinding
 
 /** [[InwardNode]] is a slave node*/
 trait InwardNode[DI, UI, BI <: Data] extends BaseNode
 {
+  /** when connecting this node to other nodes,
+    * [[accPI]] will append other nodes's information
+    * */
   private val accPI = ListBuffer[(Int, OutwardNode[DI, UI, BI], NodeBinding, Parameters, SourceInfo)]()
+
+  /** mark [[iBindings]] has been implemented.*/
   private var iRealized = false
 
+  /** current size of [[accPI]]. [[InwardNode.bind]] will find it useful.*/
   protected[diplomacy] def iPushed = accPI.size
+
+  /** call by [[InwardNode]] to bind this port from [[InwardNode]]
+    * @param index index of current.
+    * @param node node to bind now.
+    * @param binding Binding type.
+    * */
   protected[diplomacy] def iPush(index: Int, node: OutwardNode[DI, UI, BI], binding: NodeBinding)(implicit p: Parameters, sourceInfo: SourceInfo) {
     val info = sourceLine(sourceInfo, " at ", "")
     require (!iRealized, s"${context} was incorrectly connected as a sink after its .module was used" + info)
     accPI += ((index, node, binding, p, sourceInfo))
   }
 
+  /** It's the final result of [[accPI]].
+    * after calling this, [[iPush]] will reject to add more [[Parameters]], since module has been send to [[chisel3.internal.Builder]]
+    * it will be called by [[sinkCard]], [[sourceCard]], [[flexes]] and [[iStar]]b for connection number computation.
+    * it will also be used to generate [[iPortMapping]]
+    * and finally called by [[MixedNode.oDirectPorts]] for [[MixedNode.oPorts]] generation
+    * */
   protected[diplomacy] lazy val iBindings = { iRealized = true; accPI.result() }
 
   protected[diplomacy] val iStar: Int
@@ -347,10 +381,11 @@ trait OutwardNode[DO, UO, BO <: Data] extends BaseNode
 
   /** current size of [[accPO]]. [[InwardNode.bind]] will find it useful.*/
   protected[diplomacy] def oPushed = accPO.size
+
   /** call by [[InwardNode]] to bind this port from [[InwardNode]]
-    * @param index index of current
-    * @param node wtf
-    * @param binding wtf
+    * @param index index of current.
+    * @param node node to bind now.
+    * @param binding Binding type.
     * */
   protected[diplomacy] def oPush(index: Int, node: InwardNode [DO, UO, BO], binding: NodeBinding)(implicit p: Parameters, sourceInfo: SourceInfo) {
     val info = sourceLine(sourceInfo, " at ", "")
@@ -360,13 +395,15 @@ trait OutwardNode[DO, UO, BO <: Data] extends BaseNode
 
   /** It's the final result of [[accPO]].
     * after calling this, [[oPush]] will reject to add more [[Parameters]], since module has been send to [[chisel3.internal.Builder]]
-    * it will be called by [[sinkCard]], [[sourceCard]], and [[flexes]],
-    * which will be used to generate [[oPortMapping]], [[oStar]]
+    * it will be called by [[sinkCard]], [[sourceCard]], and [[flexes]] for connection number computation.
+    * it will also will be used to generate [[oPortMapping]], [[oStar]]
     * and finally called by [[MixedNode.oDirectPorts]] for [[MixedNode.oPorts]] generation
     * */
   protected[diplomacy] lazy val oBindings = { oRealized = true; accPO.result() }
 
+  /** number of slave nodes need to query*/
   protected[diplomacy] val oStar: Int
+  /** @todo */
   protected[diplomacy] val oPortMapping: Seq[(Int, Int)]
   protected[diplomacy] def oForward(x: Int): Option[(Int, OutwardNode[DO, UO, BO])] = None
   protected[diplomacy] val uoParams: Seq[UO] // from connected nodes
@@ -409,8 +446,14 @@ sealed abstract class MixedNode[DI, UI, EI, BI <: Data, DO, UO, EO, BO <: Data](
     * */
   val inward = this
   val outward = this
-
-  /** @todo function related to bind times.*/
+  /**
+    * solve how many stars
+    * @param iKnown number of master nodes no need to query
+    * @param oKnown number of slave nodes no need to query
+    * @param iStar number of master nodes need to query
+    * @param oStar number of slave nodes need to query
+    * @return
+    * */
   protected[diplomacy] def resolveStar(iKnown: Int, oKnown: Int, iStar: Int, oStar: Int): (Int, Int)
   /** map [[Parameters]] from upstream's [[Parameters]],
     * @param n is the size of output sequence of parameter for multi-downstream? @todo not sure
@@ -436,9 +479,11 @@ sealed abstract class MixedNode[DI, UI, EI, BI <: Data, DO, UO, EO, BO <: Data](
   /** [[flexes]] find all the flex binding.*/
   protected[diplomacy] lazy val flexes     = oBindings.filter(_._3 == BIND_FLEX).map(_._2) ++
                                              iBindings.filter(_._3 == BIND_FLEX).map(_._2)
-  /** @todo omg*/
+  /** Notice: star means query the connection size from this parameter
+    * if [[flexOffset]] >= 0, this connection will be treated as [[InwardNode]] star
+    * if [[flexOffset]] < 0, this connection will be treated as [[OutwardNode]] star
+    * */
   protected[diplomacy] lazy val flexOffset = { // positive = sink cardinality; define 0 to be sink (both should work)
-    /** Deep first search for flex node visit.*/
     def DFS(v: BaseNode, visited: Map[Int, BaseNode]): Map[Int, BaseNode] = {
       if (visited.contains(v.serial)) {
         visited
@@ -446,6 +491,15 @@ sealed abstract class MixedNode[DI, UI, EI, BI <: Data, DO, UO, EO, BO <: Data](
         v.flexes.foldLeft(visited + (v.serial -> v))((sum, n) => DFS(n, sum))
       }
     }
+    /** a partial flex set connect to this node, for example
+      * {{{
+      *   a :*=* b :*=* c
+      *   d :*=* b
+      *   e :*=* f
+      * }}}
+      * `flexSet` of `a`, `b`, `c`, `d` will be `Set(a, b, c, d)`
+      * `flexSet` of `e`, `f` will be `Set(e,f)`
+      * */
     val flexSet = DFS(this, Map()).values
     val allSink   = flexSet.map(_.sinkCard).sum
     val allSource = flexSet.map(_.sourceCard).sum
@@ -459,19 +513,28 @@ sealed abstract class MixedNode[DI, UI, EI, BI <: Data, DO, UO, EO, BO <: Data](
     try {
       if (starCycleGuard) throw StarCycleException()
       starCycleGuard = true
+      /** count how many slave nodes need to query. */
       val oStars = oBindings.count { case (_,_,b,_,_) => b == BIND_STAR || (b == BIND_FLEX && flexOffset <  0) }
+      /** count how many master nodes need to query. */
       val iStars = iBindings.count { case (_,_,b,_,_) => b == BIND_STAR || (b == BIND_FLEX && flexOffset >= 0) }
+      /** count how many slave nodes no need to query. */
       val oKnown = oBindings.map { case (_, n, b, _, _) => b match {
         case BIND_ONCE  => 1
         case BIND_FLEX  => { if (flexOffset < 0) 0 else n.iStar }
         case BIND_QUERY => n.iStar
         case BIND_STAR  => 0 }}.foldLeft(0)(_+_)
+      /** count how many master nodes no need to query. */
       val iKnown = iBindings.map { case (_, n, b, _, _) => b match {
         case BIND_ONCE  => 1
         case BIND_FLEX  => { if (flexOffset >= 0) 0 else n.oStar }
         case BIND_QUERY => n.oStar
         case BIND_STAR  => 0 }}.foldLeft(0)(_+_)
+      /** the actual query master and query slave number. */
       val (iStar, oStar) = resolveStar(iKnown, oKnown, iStars, oStars)
+      /** find all [[InwardNode]](slave) connect to this node,
+        * based on the [[NodeBinding]] decide the query result
+        * @todo understand fully [[oSum]] and [[iSum]]
+        * */
       val oSum = oBindings.map { case (_, n, b, _, _) => b match {
         case BIND_ONCE  => 1
         case BIND_FLEX  => { if (flexOffset < 0) oStar else n.iStar }
@@ -493,6 +556,8 @@ sealed abstract class MixedNode[DI, UI, EI, BI <: Data, DO, UO, EO, BO <: Data](
   /** [[oPorts]] represents a list of (index, port) bind by all its manager side ports;
     * [[iPorts]] its client side ports
     * */
+
+  /** Seq[(Int, InwardNode[Any, Any, Any], Parameters, SourceInfo)]*/
   protected[diplomacy] lazy val oDirectPorts = oBindings.flatMap { case (i, n, _, p, s) =>
     val (start, end) = n.iPortMapping(i)
     (start until end) map { j => (j, n, p, s) }
@@ -659,6 +724,7 @@ abstract class CustomNode[D, U, EO, EI, B <: Data](imp: NodeImp[D, U, EO, EI, B]
   * {{{
   *   case class TLToAXI4Node(stripBits: Int = 0)(implicit valName: ValName) extends MixedAdapterNode(TLImp, AXI4Imp)
   * }}}
+  * For example, an [[MixedAdapterNode]] is needed for a TL to AXI bridge (interface).
   * @param inner input node [[Parameters]]
   * @param outer output node [[Parameters]]
   * @param dFn
@@ -709,7 +775,6 @@ class MixedAdapterNode[DI, UI, EI, BI <: Data, DO, UO, EO, BO <: Data](
   * The [[MixedAdapterNode.inner]] and [[MixedAdapterNode.outer]] of [[AdapterNode]] are same,
   * but it has to provide the [[uFn]] and [[dFn]] to alter the [[Parameters]] transform protocol
   * When the [[U]] and [[D]] parameters are different, an adapter node is used.
-  * For example, an adapter node is needed for a TL to AXI bridge (interface).
   *
   * @param imp
   * @param dFn
@@ -779,8 +844,8 @@ class EphemeralNode[D, U, EO, EI, B <: Data](imp: NodeImp[D, U, EO, EI, B])()(im
   *
   * @param inner input node bus implementation
   * @param outer output node bus implementation
-  * @param dFn convert a sequence of [[Parameters]] accept from upstream, process it and to downstream
-  * @param uFn convert a sequence of [[Parameters]] accept from downstream, process it and to upstream
+  * @param dFn merge [[Parameters]] from multi master sources connected to this node into a single parameter
+  * @param uFn merge [[Parameters]] from multi slave sources connected to this node into a single parameter
   * @param inputRequiresOutput
   * @param outputRequiresInput
   * @param valName
@@ -805,6 +870,11 @@ class MixedNexusNode[DI, UI, EI, BI <: Data, DO, UO, EO, BO <: Data](
   extends MixedNode(inner, outer)
 {
   override def description = "nexus"
+  /**
+    * if [[outputRequiresInput]] is true, and this node contains more than one slave connection, then this node must contain a master
+    * if [[inputRequiresOutput]] is true, and this node contains more than one master connection, then this node must contain a slave
+    * @todo seems strange here
+    * */
   protected[diplomacy] def resolveStar(iKnown: Int, oKnown: Int, iStars: Int, oStars: Int): (Int, Int) = {
     // a nexus treats :=* as a weak pointer
     require (!outputRequiresInput || oKnown == 0 || iStars + iKnown != 0, s"$context has $oKnown required outputs and no possible inputs")
@@ -819,8 +889,8 @@ class MixedNexusNode[DI, UI, EI, BI <: Data, DO, UO, EO, BO <: Data](
   * which [[MixedNexusNode.inner]] and [[MixedNexusNode.outer]] has same [[NodeImp]]
   *
   * @param imp
-  * @param dFn
-  * @param uFn
+  * @param dFn merge parameters multi master sources connected to this node to a single parameter
+  * @param uFn merge parameters multi slave sources connected to this node to a single parameter
   * @param inputRequiresOutput
   * @param outputRequiresInput
   * @param valName
@@ -841,7 +911,7 @@ class NexusNode[D, U, EO, EI, B <: Data](imp: NodeImp[D, U, EO, EI, B])(
 /** [[SourceNode]] will ignore the [[MixedNode.iPorts]].
   * [[SourceNode]] is to model a master node in the graph which only has outwards arcs but no inwards arcs.
   * For example, a processor would be a [[SourceNode]].
-  *
+  * cannot appear left of a `:=`， `:*=`, `:*=*`
   * There are no Mixed SourceNodes
   * @param imp
   * @param po
@@ -856,6 +926,14 @@ class SourceNode[D, U, EO, EI, B <: Data](imp: NodeImp[D, U, EO, EI, B])(po: Seq
   extends MixedNode(imp, imp)
 {
   override def description = "source"
+  /**
+    * @param iKnown 0 only
+    * @param oKnown oStars == 0 => oKnown = po.size
+    *               oStars == 1 => oKnown <= po.size
+    * @param iStars 0
+    * @param oStars 0 only
+    * @return query result
+    * */
   protected[diplomacy] def resolveStar(iKnown: Int, oKnown: Int, iStars: Int, oStars: Int): (Int, Int) = {
     require (oStars <= 1, s"$context appears right of a :=* ${oStars} times; at most once is allowed")
     require (iStars == 0, s"$context cannot appear left of a :*=")
@@ -879,6 +957,8 @@ class SourceNode[D, U, EO, EI, B <: Data](imp: NodeImp[D, U, EO, EI, B])(po: Seq
 /** [[SinkNode]] will ignore the [[MixedNode.oPorts]].
   * [[SInkNode]] is a slave node in the graph which has only inwards arcs but no outwards arcs,
   * For example, a RAM block (sink) in regarding to the LLC.
+  * cannot appear right of a `:=`， `:*=`, `:*=*`
+  *
   * @param imp
   * @param pi
   * @param valName
@@ -892,6 +972,14 @@ class SinkNode[D, U, EO, EI, B <: Data](imp: NodeImp[D, U, EO, EI, B])(pi: Seq[U
   extends MixedNode(imp, imp)
 {
   override def description = "sink"
+  /**
+    * @param iKnown iStars == 0 => iKnown = pi.size
+    *               iStars == 1 => iKnown <= pi.size
+    * @param oKnown 0 only
+    * @param iStars 0 or 1
+    * @param oStars 0 only
+    * @return query result
+    * */
   protected[diplomacy] def resolveStar(iKnown: Int, oKnown: Int, iStars: Int, oStars: Int): (Int, Int) = {
     require (iStars <= 1, s"$context appears left of a :*= ${iStars} times; at most once is allowed")
     require (oStars == 0, s"$context cannot appear right of a :=*")

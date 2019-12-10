@@ -48,7 +48,7 @@ abstract class LazyModule()(implicit val p: Parameters)
   protected[diplomacy] var inModuleBody = List[() => Unit]()
 
   /** get the [[parents]] from [[LazyModule]] singleton:
-    * if will return the full stack of this [[LazyModule]]
+    * it will return the full stack of this [[LazyModule]]
     * */
   def parents: Seq[LazyModule] = parent match {
     case None => Nil
@@ -57,7 +57,7 @@ abstract class LazyModule()(implicit val p: Parameters)
 
   /** [[LazyModule.scope]] stack push */
   LazyModule.scope = Some(this)
-  /** ask parents to add this class into there [[children]],
+  /** ask parents to add this class into these [[children]],
     * This is a important difference between [[chisel3.Module]] and [[LazyModule]]
     * [[LazyModule]] can access other [[Module]]'s variable, before evaluation.
     * So no need to access [[chisel3.internal.Builder]] for dangerous hacking.
@@ -85,6 +85,7 @@ abstract class LazyModule()(implicit val p: Parameters)
   def line = sourceLine(info)
 
   // Accessing these names can only be done after circuit elaboration!
+  /** @todo will firrtl rename these names in the Transform?*/
   lazy val moduleName = module.name // The final Verilog Module name
   lazy val pathName = module.pathName
   lazy val instanceName = pathName.split('.').last // The final Verilog instance name
@@ -167,7 +168,7 @@ abstract class LazyModule()(implicit val p: Parameters)
 
 object LazyModule
 {
-  /** current [[LazyModue]] scope, default is [[None]],
+  /** current [[LazyModule]] scope, default is [[None]],
     * it will be dynamically set by [[LazyScope.apply]] and [[LazyModule.apply]],
     * specifically, it is a stack of [[LazyModule]],
     * */
@@ -176,7 +177,7 @@ object LazyModule
   private var index = 0
 
   def apply[T <: LazyModule](bc: T)(implicit valName: ValName, sourceInfo: SourceInfo): T = {
-    /** Make sure the user put LazyModule around modules in the correct order
+    /** Make sure the user puts LazyModule around modules in the correct order
       * If this require fails, probably some grandchild was missing a LazyModule
       * or you applied LazyModule twice
       * */
@@ -222,15 +223,17 @@ sealed trait LazyModuleImpLike extends RawModule
     }
 
     /** ask each node in the [[LazyModule]] to call [[BaseNode.instantiate]].
-      * if will return a sequence of [[Dangle]] of these [[BaseNode]]*/
+      * it will return a sequence of [[Dangle]] of these [[BaseNode]]*/
     val nodeDangles = wrapper.nodes.reverse.flatMap(_.instantiate())
     /** add all node and child dangle together.*/
     val allDangles = nodeDangles ++ childDangles
-
+    /** internal nodes pairing, (same source [[HalfEdge]]) */
     val pairing = SortedMap(allDangles.groupBy(_.source).toSeq:_*)
-    /** make the connection between source and sink.*/
+    /** connect dangles can be paired.
+      * @todo mostly from [[nodeDangles]] to [[childDangles]] ?*/
     val done = Set() ++ pairing.values.filter(_.size == 2).map { case Seq(a, b) =>
       require (a.flipped != b.flipped)
+      /** @todo quite strange*/
       if (a.flipped) { a.data <> b.data } else { b.data <> a.data }
       a.source
     }
