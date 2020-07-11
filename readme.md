@@ -5,4 +5,4 @@ Currently it dropped `SRAM.scala` from original repository, to remove dependence
 
 # Upstreaming:
 https://github.com/chipsalliance/rocket-chip/pull/2316  
-https://github.com/chipsalliance/rocket-chip/pull/2311
+<del>https://github.com/chipsalliance/rocket-chip/pull/2311</del>
